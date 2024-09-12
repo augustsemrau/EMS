@@ -1,0 +1,348 @@
+# Building blocks: 
+  # UI
+  # Processor
+  # Event
+  # Command
+  # View
+
+# Patterns: 
+  # Command: Trigger -> Command -> Event
+  # View: Event -> View -> Trigger
+  # Automation: Event -> View -> Processor -> Command -> Event
+  # Translation: External Event -> View -> Processor -> Command -> Event
+
+roles:
+  - &gps GPS
+  - &manager Manager
+  - &guest Guest
+
+services:
+  - &inventory Inventory
+  - &auth Auth
+  - &payment Payment
+
+patterns:
+  - &command Command
+  - &view View
+  - &automation Automation
+  - &translation Translation
+
+process:
+  id: hotel_notification_system
+  name: "Hotel Room Booking System"
+  types:
+    enums:
+      - RoomType:
+        - "King"
+        - "Queen"
+        - "Single"
+      - CustomerType:
+        - VIP
+        - Gold
+        - Silver
+        - Normal
+    data_objects:
+      - Address:
+        - "street: String"
+        - "zipCode: String"
+        - "city: String"
+        - "country: String"
+      - Name:
+        - "firstName: String"
+        - "lastName: String"
+  slices:
+    # Guest registers at hotel
+    # Command: Trigger -> Command -> Event
+    - id: register
+      description: Guest registers at hotel
+      pattern: *command
+      trigger:
+        id: register_trigger
+        name: Register
+        role: *guest
+        identity_property: "guestID:GuestID"
+        additional_properties:
+          - "name: Name"
+          - "address: Address"
+      command:
+        id: register_command
+        name: Register
+        identity_property: "guestID:GuestID"
+        additional_properties:
+          - "name: Name"
+          - "address: Address"
+      event:
+        id: registered_event
+        name: Registered
+        service: *auth
+        identity_property: "guestID:GuestID"
+        additional_properties:
+          - "name: Name"
+          - "address: Address"
+
+    # Manager adds room the list of available rooms
+    # Command: Trigger -> Command -> Event
+    - id: add_room
+      description: Manager adds room the list of available rooms
+      pattern: *command
+      trigger:
+        id: add_room_trigger
+        name: "Add\nRoom"
+        role: *manager
+        identity_property: "roomID:RoomID"
+        additional_properties:
+          - "roomNumber: Long"
+      command:
+        id: add_room_command
+        name: "Add\nRoom"
+        identity_property: "roomID:RoomID"
+        additional_properties:
+          - "roomNumber: Long"
+      event:
+        id: room_added_event
+        name: "Room\nAdded"
+        service: *inventory
+        identity_property: "roomID:RoomID"
+        additional_properties:
+          - "roomNumber: Long"
+
+    # The added room is shown on the list
+    # View: Event -> View -> Trigger
+    - id: room_availability
+      pattern: *view
+      event:
+        id: room_added_event
+        name: "Room\nAdded"
+        service: *inventory
+        identity_property: "roomID:RoomID"
+      view:
+        id: room_availability_view
+        name: "Room\nAvailability"
+        identity_property: "roomID:RoomID"
+      trigger:
+        id: book_room_trigger
+        name: "Book\nRoom"
+        role: *guest
+        identity_property: "guestID:GuestID"
+        additional_properties:
+          - "roomID:RoomID"
+
+    # Guest books an available room
+    # Command: Trigger -> Command -> Event
+    - id: book_room
+      description: Guest books an available room
+      pattern: *command
+      trigger:
+        id: book_room_trigger
+        name: "Book\nRoom"
+        role: *guest
+        identity_property: "guestID:GuestID"
+        additional_properties:
+          - "roomID:RoomID"
+      command:
+        id: book_room_command
+        name: "Book\nRoom"
+        identity_property: "guestID:GuestID"
+        additional_properties:
+          - "roomID:RoomID"
+      event:
+        id: room_booked_event
+        name: "Room\nBooked"
+        service: *inventory
+        identity_property: "guestID:GuestID"
+        additional_properties:
+          - "roomID:RoomID"
+
+    # The booked room is added to the cleaning schedule
+    # View: Event -> View -> Trigger
+    - id: cleaning_schedule
+      description: The booked room is added to the cleaning schedule
+      pattern: *view
+      event:
+        id: room_booked_event
+        name: "Room\nBooked"
+        service: *inventory
+        identity_property: "guestID:GuestID"
+        additional_properties:
+          - "roomID:RoomID"
+      view:
+        id: cleaning_schedule_view
+        name: "Cleaning\nSchedule"
+        identity_property: "roomID:RoomID"
+      trigger:
+        id: cleaning_schedule_trigger
+        name: "Cleaning\nSchedule"
+        role: *manager
+        identity_property: "roomID:RoomID"
+    
+    # Manager orders the room to be readied
+    # Command: Trigger -> Command -> Event
+    - id: ready_room
+      description: Manager orders the room to be readied
+      pattern: *command
+      trigger:
+        id: cleaning_schedule_trigger
+        name: "Cleaning\nSchedule"
+        role: *manager
+        identity_property: "roomID:RoomID"
+      command:
+        id: ready_room_command
+        name: "Ready\nRoom"
+        identity_property: "roomID:RoomID"
+      event:
+        id: room_readied_event
+        name: "Room\nReadied"
+        service: *inventory
+        identity_property: "roomID:RoomID"
+
+    # Guest checks in to the hotel
+    # Command: Trigger -> Command -> Event
+    - id: check_in
+      description: Guest checks in to the hotel
+      pattern: *command
+      trigger:
+        id: check_in_trigger
+        name: "Check\nIn"
+        role: *guest
+        identity_property: "guestID:GuestID"
+      command:
+        id: check_in_command
+        name: "Check\nIn"
+        identity_property: "guestID:GuestID"
+      event:
+        id: checked_in_event
+        name: "Checked\nIn"
+        service: *inventory
+        identity_property: "guestID:GuestID"
+    
+    # GPS API notifies when the guest leaves 
+    # Command: Trigger -> Command -> Event
+    - id: hotel_proximity
+      description: GPS API notifies when the guest leaves 
+      pattern: *command
+      trigger:
+        id: hotel_proximity_trigger
+        name: "Hotel\nProximity"
+        role: *gps
+        identity_property: "guestID:GuestID"
+      command:
+        id: hotel_proximity_command
+        name: "Hotel\nProximity"
+        identity_property: "guestID:GuestID"
+      event:
+        id: guest_left_event
+        name: "Guest Left\nHotel"
+        service: *inventory
+        identity_property: "guestID:GuestID"
+
+    # Leaving the hotel triggers a checkout process
+    # Translation: Event -> View -> Processor -> Command -> Event
+    - id: checkout
+      description: Leaving the hotel triggers a checkout process
+      pattern: *translation
+      events: 
+        - id: guest_left_event
+          name: "Guest Left\nHotel"
+          service: *inventory
+          identity_property: "guestID:GuestID"
+        - id: checked_out_event
+          name: "Checked\nOut" 
+          service: *inventory
+          identity_property: "guestID:GuestID"
+      view:
+        id: guest_roster_view
+        name: "Guest\nRoster"
+        identity_property: "guestID:GuestID"
+      processor:
+        id: checkout_processor
+        name: "Checkout\nProcessor"
+        role: *translation
+        identity_property: "guestID:GuestID"
+      command:
+        id: checkout_command
+        name: "Check\nOut"
+        identity_property: "guestID:GuestID"
+
+    # Guest requests to pay
+    # Command: Trigger -> Command -> Event
+    - id: pay
+      description: Guest requests to pay
+      pattern: *command
+      trigger:
+        id: pay_trigger
+        name: Pay
+        role: *guest
+        identity_property: "guestID:GuestID"
+        additional_properties:
+          - "roomID:RoomID"
+      command: 
+        id: pay_command
+        name: Pay
+        identity_property: "guestID:GuestID"
+        additional_properties:
+          - "roomID:RoomID"
+      event:
+        id: payment_requested_event
+        name: "Payment\nRequested"
+        service: *payment
+        identity_property: "guestID:GuestID"
+        additional_properties:
+          - "roomID:RoomID"
+    
+    # A payment process handles the transaction
+    # Automation: Event -> View -> Processor -> Command -> Event
+    - id: payment
+      description: A payment process handles the transaction
+      pattern: *automation
+      events: 
+        - id: payment_requested_event
+          name: "Payment\nRequested"
+          service: *payment
+          identity_property: "guestID:GuestID"
+          additional_properties:
+            - "roomID:RoomID"
+        - id: payment_succeeded_event
+          name: "Payment\nSucceeded"
+          service: *payment
+          identity_property: "guestID:GuestID"
+          additional_properties:
+            - "roomID:RoomID"
+      view:
+        id: paymetns_to_process_view
+        name: "Payments\nto Process"
+        identity_property: "guestID:GuestID"
+        additional_properties:
+          - "roomID:RoomID"
+      processor:
+        id: payment_processor
+        name: "Payment\nProcessor"
+        role: *automation
+        identity_property: "guestID:GuestID"
+        additional_properties:
+          - "roomID:RoomID"
+      command:
+        id: process_payment_command
+        name: "Process\nPayment"
+        identity_property: "guestID:GuestID"
+        additional_properties:
+          - "roomID:RoomID"
+    
+    # Succesful payments are shown in the sales report
+    # View: Event -> View -> Trigger
+    - id: sales_report
+      description: Succesful payments are shown in the sales report
+      pattern: *view
+      event:
+        id: payment_succeeded_event
+        name: "Payment\nSucceeded"
+        service: *payment
+        identity_property: "roomID:RoomID"
+      view:
+        id: sales_report_view
+        name: "Sales\nReport"
+        identity_property: "roomID:RoomID"
+      trigger:
+        id: sales_report_trigger
+        name: "Sales\nReport"
+        role: *manager
+        identity_property: "roomID:RoomID"
