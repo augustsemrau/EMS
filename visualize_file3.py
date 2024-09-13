@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle, FancyArrowPatch
 from yaml import safe_load
 
-def draw_process_diagram(yaml_file="data/temp.yml"):
+def draw_process_diagram(yaml_file="data/test1.yml"):
     # read data
     data = safe_load(open(yaml_file))
     slices = data['process']['slices']
