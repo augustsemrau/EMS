@@ -1,12 +1,11 @@
 roles:
   - &member Member
-  - &admin Admin
-  - &guest Guest
+  - &administrator Administrator
 
 services:
-  - &reservation Reservation
-  - &fleet_management FleetManagement
-  - &notification Notification
+  - &reservation ReservationService
+  - &notification NotificationService
+  - &maintenance MaintenanceService
 
 patterns:
   - &command Command
@@ -15,165 +14,295 @@ patterns:
   - &translation Translation
 
 process:
-  id: sailing_club_boat_reservation_system
+  id: sailing_club_reservation_system
   name: "Sailing Club Boat Reservation System"
   types:
     enums:
       - BoatType:
-        - "Sailboat"
-        - "Motorboat"
-        - "Yacht"
-      - MembershipLevel:
-        - VIP
-        - Regular
-        - Guest
+          - "Sailboat"
+          - "Motorboat"
+          - "Kayak"
     data_objects:
-      - BoatDetails:
-        - "boatID: BoatID"
-        - "name: String"
-        - "type: BoatType"
-        - "status: String"
-      - MemberDetails:
-        - "memberID: MemberID"
-        - "name: String"
-        - "membershipLevel: MembershipLevel"
-
+      - TimeSlot:
+          - "startTime: DateTime"
+          - "endTime: DateTime"
+      - MemberInfo:
+          - "firstName: String"
+          - "lastName: String"
+          - "membershipLevel: String"
   slices:
-    - id: add_boat
-      description: Admin adds a new boat to the club's fleet
-      pattern: *command
-      trigger:
-        id: add_boat_trigger
-        name: "Add\nBoat"
-        role: *admin
-        identity_property: "boatID: BoatID"
-        additional_properties:
-          - "name: String"
-          - "type: BoatType"
-      command:
-        id: add_boat_command
-        name: "Add\nBoat"
-        identity_property: "boatID: BoatID"
-        additional_properties:
-          - "name: String"
-          - "type: BoatType"
-      event:
-        id: boat_added_event
-        name: "Boat\nAdded"
-        service: *fleet_management
-        identity_property: "boatID: BoatID"
-        additional_properties:
-          - "name: String"
-          - "type: BoatType"
-
-    - id: view_available_boats
-      description: Members can view a list of available boats
-      pattern: *view
-      event:
-        id: boat_added_event
-        name: "Boat\nAdded"
-        service: *fleet_management
-        identity_property: "boatID: BoatID"
-      view:
-        id: available_boats_view
-        name: "Available\nBoats"
-        identity_property: "boatID: BoatID"
-      trigger:
-        id: view_boats_trigger
-        name: "View\nAvailable\nBoats"
-        role: *member
-
     - id: book_boat
-      description: A member reserves a boat for use
+      description: Member books a boat for a certain time
       pattern: *command
       trigger:
         id: book_boat_trigger
         name: "Book\nBoat"
         role: *member
-        identity_property: "memberID: MemberID"
+        identity_property: "memberId: MemberId"
         additional_properties:
-          - "boatID: BoatID"
-          - "reservationDate: String"
+          - "boatId: BoatId"
+          - "timeSlot: TimeSlot"
       command:
         id: book_boat_command
         name: "Book\nBoat"
-        identity_property: "memberID: MemberID"
+        identity_property: "reservationId: ReservationId"
         additional_properties:
-          - "boatID: BoatID"
-          - "reservationDate: String"
+          - "memberId: MemberId"
+          - "boatId: BoatId"
+          - "timeSlot: TimeSlot"
       event:
-        id: boat_reserved_event
-        name: "Boat\nReserved"
+        id: boat_booked_event
+        name: "Boat\nBooked"
         service: *reservation
-        identity_property: "memberID: MemberID"
+        identity_property: "reservationId: ReservationId"
         additional_properties:
-          - "boatID: BoatID"
-          - "reservationDate: String"
-
-    - id: notify_reservation_confirmation
-      description: Notify the member about reservation confirmation
-      pattern: *automation
-      events:
-        - id: boat_reserved_event
-          name: "Boat\nReserved"
-          service: *reservation
-          identity_property: "memberID: MemberID"
-      view:
-        id: reservation_notifications_view
-        name: "Reservation\nNotifications"
-        identity_property: "memberID: MemberID"
-      processor:
-        id: send_notification_processor
-        name: "Send\nReservation\nNotification"
-        role: *automation
-        identity_property: "memberID: MemberID"
-      command:
-        id: send_reservation_notification_command
-        name: "Send\nNotification"
-        identity_property: "memberID: MemberID"
+          - "memberId: MemberId"
+          - "boatId: BoatId"
+          - "timeSlot: TimeSlot"
+    - id: view_available_boats
+      description: Member views available boats for a certain time
+      pattern: *view
       event:
-        id: reservation_notification_sent_event
-        name: "Reservation\nNotification\nSent"
-        service: *notification
-        identity_property: "memberID: MemberID"
-
+        id: boat_status_changed_event
+        name: "Boat Status\nChanged"
+        service: *reservation
+        identity_property: "boatId: BoatId"
+        additional_properties:
+          - "status: String"
+      view:
+        id: available_boats_view
+        name: "Available\nBoats"
+        identity_property: "boatId: BoatId"
+        additional_properties:
+          - "status: String"
+      trigger:
+        id: view_boats_trigger
+        name: "View\nBoats"
+        role: *member
+        identity_property: "memberId: MemberId"
+    - id: cancel_reservation
+      description: Member cancels a reservation
+      pattern: *command
+      trigger:
+        id: cancel_reservation_trigger
+        name: "Cancel\nReservation"
+        role: *member
+        identity_property: "reservationId: ReservationId"
+      command:
+        id: cancel_reservation_command
+        name: "Cancel\nReservation"
+        identity_property: "reservationId: ReservationId"
+        additional_properties:
+          - "memberId: MemberId"
+      event:
+        id: reservation_cancelled_event
+        name: "Reservation\nCancelled"
+        service: *reservation
+        identity_property: "reservationId: ReservationId"
+        additional_properties:
+          - "memberId: MemberId"
+    - id: add_boat
+      description: Administrator adds a new boat to the fleet
+      pattern: *command
+      trigger:
+        id: add_boat_trigger
+        name: "Add\nBoat"
+        role: *administrator
+        identity_property: "boatId: BoatId"
+        additional_properties:
+          - "boatType: BoatType"
+          - "boatName: String"
+      command:
+        id: add_boat_command
+        name: "Add\nBoat"
+        identity_property: "boatId: BoatId"
+        additional_properties:
+          - "boatType: BoatType"
+          - "boatName: String"
+      event:
+        id: boat_added_event
+        name: "Boat\nAdded"
+        service: *reservation
+        identity_property: "boatId: BoatId"
+        additional_properties:
+          - "boatType: BoatType"
+          - "boatName: String"
+    - id: remove_boat
+      description: Administrator removes a boat from the fleet
+      pattern: *command
+      trigger:
+        id: remove_boat_trigger
+        name: "Remove\nBoat"
+        role: *administrator
+        identity_property: "boatId: BoatId"
+      command:
+        id: remove_boat_command
+        name: "Remove\nBoat"
+        identity_property: "boatId: BoatId"
+      event:
+        id: boat_removed_event
+        name: "Boat\nRemoved"
+        service: *reservation
+        identity_property: "boatId: BoatId"
+    - id: check_in_boat
+      description: Member checks in to use the boat
+      pattern: *command
+      trigger:
+        id: check_in_trigger
+        name: "Check In\nBoat"
+        role: *member
+        identity_property: "reservationId: ReservationId"
+      command:
+        id: check_in_command
+        name: "Check In\nBoat"
+        identity_property: "reservationId: ReservationId"
+        additional_properties:
+          - "memberId: MemberId"
+          - "boatId: BoatId"
+      event:
+        id: boat_checked_in_event
+        name: "Boat\nChecked In"
+        service: *reservation
+        identity_property: "reservationId: ReservationId"
+        additional_properties:
+          - "memberId: MemberId"
+          - "boatId: BoatId"
     - id: return_boat
-      description: Member returns a boat after use
+      description: Member returns the boat after use
       pattern: *command
       trigger:
         id: return_boat_trigger
         name: "Return\nBoat"
         role: *member
-        identity_property: "memberID: MemberID"
-        additional_properties:
-          - "boatID: BoatID"
+        identity_property: "reservationId: ReservationId"
       command:
         id: return_boat_command
         name: "Return\nBoat"
-        identity_property: "memberID: MemberID"
+        identity_property: "reservationId: ReservationId"
         additional_properties:
-          - "boatID: BoatID"
+          - "memberId: MemberId"
+          - "boatId: BoatId"
       event:
         id: boat_returned_event
         name: "Boat\nReturned"
-        service: *fleet_management
-        identity_property: "boatID: BoatID"
+        service: *reservation
+        identity_property: "reservationId: ReservationId"
         additional_properties:
-          - "memberID: MemberID"
-
-    - id: view_usage_report
-      description: Admin views boat usage report
+          - "memberId: MemberId"
+          - "boatId: BoatId"
+    - id: schedule_maintenance
+      description: Administrator schedules maintenance for a boat
+      pattern: *command
+      trigger:
+        id: schedule_maintenance_trigger
+        name: "Schedule\nMaintenance"
+        role: *administrator
+        identity_property: "boatId: BoatId"
+        additional_properties:
+          - "maintenanceDate: Date"
+      command:
+        id: schedule_maintenance_command
+        name: "Schedule\nMaintenance"
+        identity_property: "boatId: BoatId"
+        additional_properties:
+          - "maintenanceDate: Date"
+      event:
+        id: maintenance_scheduled_event
+        name: "Maintenance\nScheduled"
+        service: *maintenance
+        identity_property: "boatId: BoatId"
+        additional_properties:
+          - "maintenanceDate: Date"
+    - id: send_reservation_reminder
+      description: Send reminder to member about upcoming reservation
+      pattern: *automation
+      events:
+        - id: boat_booked_event
+          name: "Boat\nBooked"
+          service: *reservation
+          identity_property: "reservationId: ReservationId"
+          additional_properties:
+            - "memberId: MemberId"
+            - "timeSlot: TimeSlot"
+      view:
+        id: upcoming_reservations_view
+        name: "Upcoming\nReservations"
+        identity_property: "reservationId: ReservationId"
+        additional_properties:
+          - "memberId: MemberId"
+          - "timeSlot: TimeSlot"
+      processor:
+        id: reservation_reminder_processor
+        name: "Reservation\nReminder Processor"
+        role: *automation
+        identity_property: "reservationId: ReservationId"
+      command:
+        id: send_reminder_command
+        name: "Send\nReminder"
+        identity_property: "reservationId: ReservationId"
+        additional_properties:
+          - "memberId: MemberId"
+      event:
+        id: reminder_sent_event
+        name: "Reminder\nSent"
+        service: *notification
+        identity_property: "reservationId: ReservationId"
+        additional_properties:
+          - "memberId: MemberId"
+    - id: notify_overdue_return
+      description: Notify administrator when a boat is not returned on time
+      pattern: *automation
+      events:
+        - id: boat_not_returned_event
+          name: "Boat Not\nReturned"
+          service: *reservation
+          identity_property: "reservationId: ReservationId"
+          additional_properties:
+            - "memberId: MemberId"
+            - "boatId: BoatId"
+      view:
+        id: overdue_returns_view
+        name: "Overdue\nReturns"
+        identity_property: "reservationId: ReservationId"
+        additional_properties:
+          - "memberId: MemberId"
+          - "boatId: BoatId"
+      processor:
+        id: overdue_return_processor
+        name: "Overdue Return\nProcessor"
+        role: *automation
+        identity_property: "reservationId: ReservationId"
+      command:
+        id: notify_administrator_command
+        name: "Notify\nAdministrator"
+        identity_property: "reservationId: ReservationId"
+        additional_properties:
+          - "administratorId: AdministratorId"
+      event:
+        id: administrator_notified_event
+        name: "Administrator\nNotified"
+        service: *notification
+        identity_property: "reservationId: ReservationId"
+        additional_properties:
+          - "administratorId: AdministratorId"
+    - id: view_reservation_history
+      description: Member views their reservation history
       pattern: *view
       event:
-        id: boat_returned_event
-        name: "Boat\nReturned"
-        service: *fleet_management
-        identity_property: "boatID: BoatID"
+        id: boat_booked_event
+        name: "Boat\nBooked"
+        service: *reservation
+        identity_property: "reservationId: ReservationId"
+        additional_properties:
+          - "memberId: MemberId"
+          - "boatId: BoatId"
+          - "timeSlot: TimeSlot"
       view:
-        id: boat_usage_report_view
-        name: "Boat\nUsage\nReport"
-        identity_property: "boatID: BoatID"
+        id: reservation_history_view
+        name: "Reservation\nHistory"
+        identity_property: "memberId: MemberId"
       trigger:
-        id: view_report_trigger
-        name: "View\nUsage\nReport"
-        role: *admin
+        id: view_history_trigger
+        name: "View\nHistory"
+        role: *member
+        identity_property: "memberId: MemberId"
