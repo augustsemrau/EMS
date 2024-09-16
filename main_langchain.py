@@ -1,141 +1,98 @@
-"""Main file for Event Modeling System (EMS), as a prototype for using LLM assistance in Event Modelling."""
+"""Chainlit"""
+import chainlit as cl
 
+"""OpenAI"""
+from langchain_openai import AzureChatOpenAI
 
-# Langchain imports
-from langchain import hub
-from langchain.agents import AgentExecutor, create_react_agent
-from langchain.memory import ConversationBufferMemory
-from langchain.prompts import PromptTemplate
-from langchain.chains import ConversationChain
+"""Langchain"""
+from langchain.prompts import ChatPromptTemplate
+from langchain.schema import StrOutputParser
+from langchain.schema.runnable import Runnable
+from langchain.schema.runnable.config import RunnableConfig
 
-## Local imports
-from utils import init_llm_langsmith
+"""Yaml"""
+import yaml
 
+"""Subprocess"""
+import subprocess
 
+@cl.on_chat_start
+async def main():    
+    model = AzureChatOpenAI(
+        azure_deployment="gpt-4o-august-sandbox",
+        temperature=0.5,
+        streaming=True,
+        api_version="2023-06-01-preview"
+    )
 
+    hotel_booking_yaml = open("HotelBooking.yml", "r").read()
 
-class EMS:
-    """Event Modeling System (EMS)."""
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                  """
+                  You are very knowledgable on Domain Driven Design and Event Modeling. 
+                  I will ask you to generate a yaml file to describe an event model.
+                  You are already given an example of such a file, that being a Hotel Booking System described in HotelBooking.yml
+                  Here's the content of HotelBooking.yml for reference:
+                  {hotel_booking_yaml}
+                  """.format(hotel_booking_yaml = hotel_booking_yaml)
+            ),
+            ("human", "{question}"),
+        ]
+    )
+    runnable = prompt | model | StrOutputParser()
+    cl.user_session.set("runnable", runnable)
+    
 
-    def __init__(self,
-                 llm_model,
+@cl.on_message
+async def main(message: cl.Message):
+    runnable = cl.user_session.get("runnable")  # type: Runnable
 
-                 student_name: str = "August",
-                 course: str = "IntroToMachineLearning",
-                 subject: str = "Linear Regression",
-                 learning_prefs: str = "Prefers visual representations of the subject",
-                 student_id=None,
-                 ltm_query="",
-                 ):
-        """Initialize the EMS."""
-        self.llm_model = llm_model
-        self.course = course
-        self.student_id = student_id # If student_id is None, the TAS will not use long-term memory
-        self.student_name = student_name
+    max_attempts = 30
+    for attempt in range(max_attempts):
+        print('attempt no:', attempt)
+        generated_content = ""
+        async for chunk in runnable.astream(
+            {"question": message.content if attempt == 0 else f"Fix the following YAML errors and regenerate the YAML: {error_message}"},
+            config=RunnableConfig(callbacks=[cl.LangchainCallbackHandler()]),
+        ):
+            generated_content += chunk
 
-        # Init short term memory
-        self.short_term_memory = ConversationBufferMemory(memory_key="chat_history",
-                                                          return_messages=False,
-                                                          ai_prefix="Assistant",
-                                                          human_prefix="User")
+        try:
+            # Extract and validate YAML content
+            yaml_start = generated_content.find("```yaml")
+            yaml_end = generated_content.rfind("```")
+            
+            if yaml_start != -1 and yaml_end != -1:
+                yaml_content = generated_content[yaml_start+7:yaml_end].strip()
+            else:
+                yaml_content = generated_content
 
-        self.prompt = self.build_prompt(student_name=student_name,
-                                                course_name=course,
-                                                subject_name=subject,
-                                                learning_preferences=learning_prefs,
-                                                ltm_query=ltm_query)
-        
-        # Build the executor
-        # self.executor = self.build_tas()
-        # self.output_tag = "output"
-        self.executor = self.build_nonagenic_baseline()
-        self.output_tag = "response"
+            # Validate YAML
+            yaml.safe_load(yaml_content)
 
+            # Save the validated YAML to a file
+            with open("generated_model.yml", "w") as file:
+                file.write(yaml_content)
 
-    def build_nonagenic_baseline(self):
-        """Baseline LLM Chain Teaching System."""
-        prompt = {
-            "chat_history": {},
-            "input": input,
-            "system_message": ".",
-        }
-        prompt_template = """You are a teaching assistant. You are responsible for answering questions and inquiries that the student might have.
-Here is the student's query, which you MUST respond to:
-{input}
-This is the conversation so far:
-{chat_history}"""
-        prompt = PromptTemplate.from_template(template=prompt_template)
-        baseline_chain = ConversationChain(llm=self.llm_model,
-                                prompt=prompt,
-                                memory=self.short_term_memory,
-                                #output_parser=BaseLLMOutputParser(),
-                                verbose=False,)
-        return baseline_chain
+            # Run the visualize.py script with the generated YAML as input
+            result = subprocess.run(["python", "visualize.py", "generated_model.yml"], capture_output=True, text=True, check=True)
+            
+            # If we reach here, the script ran successfully
+            await cl.Message(content="YAML generated and visualization complete. Check the output file.").send()
+            
+            # If visualize.py produces any output, send it to the user
+            if result.stdout:
+                await cl.Message(content=f"Visualization output:\n```\n{result.stdout}\n```").send()
+            
+            # Exit the loop if successful
+            break
 
-
-    def build_prompt(self, student_name, course_name, subject_name, learning_preferences, ltm_query):
-        """Build the agent prompt."""
-        facts = "No prior conversations for this user."
-        if self.student_id is not None and ltm_query != "":
-            facts = self.long_term_memory_class.predict(query=ltm_query)
-        prompt_hub_template = hub.pull("augustsemrau/react-tas-prompt-3").template
-        prompt_template = PromptTemplate.from_template(template=prompt_hub_template)
-        prompt = prompt_template.partial(student_name=student_name,
-                                         course_name=course_name,
-                                         subject_name=subject_name,
-                                         learning_preferences=learning_preferences,
-                                         ltm_facts=facts,
-                                        )
-        return prompt
-
-    def build_tas(self):
-        """Build the Teaching Agent System (TAS)."""
-        tool_class = ToolClass()
-        tools = [tool_class.build_search_tool(),
-                 tool_class.build_retrieval_tool(course_name=self.course),
-                #  tool_class.build_coding_tool(),
-                ]
-
-        tas_agent = create_react_agent(llm=self.llm_model,
-                                       tools=tools,
-                                       prompt=self.tas_prompt,
-                                       output_parser=None)
-        tas_agent_executor = AgentExecutor(agent=tas_agent,
-                                           tools=tools,
-                                           memory=self.short_term_memory,
-                                           verbose=True,
-                                           handle_parsing_errors=True)
-        return tas_agent_executor
-
-
-
-    def predict(self, query):
-        """Invoke the Teaching Agent System."""
-        print("\n\nUser Query:\n", query)
-        response = self.executor.invoke({"input": query})[self.output_tag]
-        print("\n\nResponse:\n", response)
-        return response
-
-
-
-
-
-
-
-
-
-
-
-if __name__ == '__main__':
-
-    ls_name = "EMS_InitialTesting"
-    llm_model = init_llm_langsmith(llm_key=3, temp=0.5, langsmith_name=ls_name)
-
-
-    ems = EMS(llm_model=llm_model,)
-
-    res = ems.predict(query="Hello")
-    # res = ems.predict(query="I'm not sure I understand the subject from this explanation. Can you explain it in a different way?")
-    # res = ems.predict(query="Thank you for the help, have a nice day!")
-
-
+        except (yaml.YAMLError, subprocess.CalledProcessError) as e:
+            error_message = str(e)
+            if attempt == max_attempts - 1:
+                await cl.Message(content=f"Failed to generate valid YAML after {max_attempts} attempts. Last error:\n```\n{error_message}\n```").send()
+            else:
+                await cl.Message(content=f"Attempt {attempt + 1} failed. Retrying...").send()
