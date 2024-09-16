@@ -5,6 +5,8 @@ from langchain.schema import StrOutputParser
 from langchain.schema.runnable import Runnable
 from langchain.schema.runnable.config import RunnableConfig
 import logging
+import os
+import time
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -20,7 +22,7 @@ async def main():
             api_version="2023-06-01-preview"
         )
 
-        instructions = open("EMS_prompt.md", "r").read()
+        instructions = open("data/EMS_prompt.md", "r").read()
 
         prompt = ChatPromptTemplate.from_messages(
             [
@@ -30,6 +32,16 @@ async def main():
         )
         runnable = prompt | model | StrOutputParser()
         cl.user_session.set("runnable", runnable)
+
+        ## Langsmith setup
+        try:
+            os.environ["LANGCHAIN_ENDPOINT"] = "https://api.smith.langchain.com"
+            os.environ["LANGCHAIN_TRACING_V2"] = "true"
+            time_now = time.strftime("%Y.%m.%d-%H.%M.")
+            os.environ["LANGCHAIN_PROJECT"] = "ChainlitTest" + "_LLM:" + "4o" + "_Timestamp:" + time_now + "_Temp: " + "0.5"
+        except Exception as e:
+            logger.error(f"Error initializing Langsmith: {str(e)}")
+
         logger.info("Chat session initialized successfully")
     except Exception as e:
         logger.error(f"Error initializing chat session: {str(e)}")
@@ -56,6 +68,7 @@ async def on_message(message: cl.Message):
     except Exception as e:
         logger.error(f"Error processing message: {str(e)}")
         await cl.Message(content=f"An error occurred: {str(e)}").send()
+
 
 
 # import chainlit as cl
