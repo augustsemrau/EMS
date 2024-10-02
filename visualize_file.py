@@ -3,7 +3,7 @@ from matplotlib.patches import Rectangle, FancyArrowPatch
 from yaml import safe_load
 
 # read data
-data = safe_load(open('data/temp.yml'))
+data = safe_load(open('data/HotelBooking.yml'))
 slices = data['process']['slices']
 services = list(reversed(data['services']))
 roles = list(reversed(data['roles']))

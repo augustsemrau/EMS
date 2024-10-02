@@ -226,4 +226,8 @@ pyrightconfig.json
 .history
 .ionide
 
+
+## presentation screenshots
+/EMS_presentation
+
 # End of https://www.toptal.com/developers/gitignore/api/macos,visualstudiocode,python
